@@ -125,10 +125,11 @@ class RNNModel(nn.Module):
             model_output = log_prob
 
         model_output = model_output.view(-1, batch_size, self.ntoken)
+        class_output = prior.view(-1, batch_size, self.n_classes)
 
         if return_h:
-            return model_output, hidden, raw_outputs, outputs
-        return model_output, hidden
+            return class_output, model_output, hidden, raw_outputs, outputs
+        return class_output, model_output, hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data

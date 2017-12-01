@@ -8,6 +8,7 @@ from collections import Counter
 class Dictionary_softmax(object):
     def __init__(self, label_file, class_num):
         self.word2idx = {}
+        self.word2cx = {}
         self.idx2word = []
         self.class_start_index = []
         self.total = 0
@@ -34,6 +35,7 @@ class Dictionary_softmax(object):
                 if word not in self.word2idx:
                     index = self.class_start_index[c] + self.c_count[c]
                     self.word2idx[word] = index
+                    self.word2cx[word] = c
                     self.c_count[c] += 1
     def __len__(self):
         return sum(self.c_count)
@@ -44,9 +46,9 @@ class Dictionary_softmax(object):
 class Corpus_softmax(object):
     def __init__(self, path, dic):
         self.dictionary = dic
-        self.train = self.tokenize(os.path.join(path, 'train.txt'))
-        self.valid = self.tokenize(os.path.join(path, 'valid.txt'))
-        self.test = self.tokenize(os.path.join(path, 'test.txt'))
+        self.train, self.train_cl = self.tokenize(os.path.join(path, 'train.txt'))
+        self.valid, self.valid_cl = self.tokenize(os.path.join(path, 'valid.txt'))
+        self.test, self.test_cl = self.tokenize(os.path.join(path, 'test.txt'))
 
     def tokenize(self, path):
         """Tokenizes a text file."""
@@ -63,14 +65,16 @@ class Corpus_softmax(object):
         # Tokenize file content
         with open(path, 'r', encoding='utf-8') as f:
             ids = torch.LongTensor(tokens)
+            cs = torch.LongTensor(tokens)
             token = 0
             for line in f:
                 words = line.split() + ['<eos>']
                 for word in words:
                     ids[token] = self.dictionary.word2idx[word]
+                    cs[token] = self.dictionary.word2cx[word]
                     token += 1
 
-        return ids
+        return ids, cs
 
 
 class Dictionary(object):

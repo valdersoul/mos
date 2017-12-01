@@ -129,6 +129,10 @@ train_data = batchify(corpus.train, args.batch_size, args)
 val_data = batchify(corpus.valid, eval_batch_size, args)
 test_data = batchify(corpus.test, test_batch_size, args)
 
+train_class_label = batchify(corpus.train_cl, args.batch_size, args)
+val_class_label = batchify(corpus.train_cl, args.batch_size, args)
+test_class_label = batchify(corpus.train_cl, args.batch_size, args)
+
 ###############################################################################
 # Build the model
 ###############################################################################
@@ -169,7 +173,7 @@ def evaluate(data_source, batch_size=10):
         data, targets = get_batch(data_source, i, args, evaluation=True)
         targets = targets.view(-1)
 
-        log_prob, hidden = parallel_model(data, hidden)
+        class_prob, log_prob, hidden = parallel_model(data, hidden)
         loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), targets).data
 
         total_loss += loss * len(data)
@@ -198,21 +202,24 @@ def train():
         optimizer.param_groups[0]['lr'] = lr2 * seq_len / args.bptt
         model.train()
         data, targets = get_batch(train_data, i, args, seq_len=seq_len)
+        _, c_targets = get_batch(train_class_label, i, args, seq_len=seq_len)
 
         optimizer.zero_grad()
 
         start, end, s_id = 0, args.small_batch_size, 0
         while start < args.batch_size:
             cur_data, cur_targets = data[:, start: end], targets[:, start: end].contiguous().view(-1)
+            cur_c_targets = c_targets[:, start: end].contiguous().view(-1)
 
             # Starting each batch, we detach the hidden state from how it was previously produced.
             # If we didn't, the model would try backpropagating all the way to start of the dataset.
             hidden[s_id] = repackage_hidden(hidden[s_id])
 
-            log_prob, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
+            class_prob, log_prob, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
             raw_loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), cur_targets)
+            class_loss = nn.functional.nll_loss(class_prob.view(-1, class_prob.size(2)), cur_c_targets)
 
-            loss = raw_loss
+            loss = raw_loss + class_loss
             # Activiation Regularization
             loss = loss + sum(args.alpha * dropped_rnn_h.pow(2).mean() for dropped_rnn_h in dropped_rnn_hs[-1:])
             # Temporal Activation Regularization (slowness)
