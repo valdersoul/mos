@@ -11,11 +11,15 @@ from torch.autograd import Variable
 import gc
 
 import data
-import model
+import model_softmax
 
 from utils import batchify, get_batch, repackage_hidden, create_exp_dir, save_checkpoint
 
 parser = argparse.ArgumentParser(description='PyTorch PennTreeBank/WikiText2 RNN/LSTM Language Model')
+
+parser.add_argument('--random', type=int, default=0,
+                    help='whether random split the words')
+
 parser.add_argument('--data', type=str, default='./penn/',
                     help='location of the data corpus')
 parser.add_argument('--model', type=str, default='LSTM',
@@ -113,7 +117,11 @@ if torch.cuda.is_available():
 # Load data
 ###############################################################################
 
-corpus = data.Corpus(args.data)
+# corpus = data.Corpus(args.data)
+class_nums = 100
+
+dic = data.Dictionary_softmax('glove.6B.100d.cluster100_labels.txt', class_nums)
+corpus = data.Corpus_softmax(args.data, dic)
 
 eval_batch_size = 10
 test_batch_size = 1
@@ -129,9 +137,9 @@ ntokens = len(corpus.dictionary)
 if args.continue_train:
     model = torch.load(os.path.join(args.save, 'model.pt'))
 else:
-    model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nhidlast, args.nlayers, 
+    model = model_softmax.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nhidlast, args.nlayers,
                        args.dropout, args.dropouth, args.dropouti, args.dropoute, args.wdrop, 
-                       args.tied, args.dropoutl, args.n_experts)
+                       args.tied, args.dropoutl, class_nums, dic._get_class_num())
 
 if args.cuda:
     if args.single_gpu:
