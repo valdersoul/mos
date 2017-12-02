@@ -29,7 +29,7 @@ class RNNModel(nn.Module):
         self.word_class = nn.Linear(nhidlast, n_classes, bias=False)
         # self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts * ninp), nn.Tanh())
         self.latent = nn.Sequential(nn.Linear(nhidlast, ninp), nn.Tanh())
-        self.decoder = nn.Linear(ninp, ntoken)
+        self.decoder = nn.Linear(ninp, ntoken + n_classes)
 
         # Optionally tie weights as in:
         # "Using the Output Embedding to Improve Language Models" (Press & Wolf 2016)
@@ -37,10 +37,10 @@ class RNNModel(nn.Module):
         # and
         # "Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling" (Inan et al. 2016)
         # https://arxiv.org/abs/1611.01462
-        if tie_weights:
+        # if tie_weights:
             # if nhid != ninp:
             #    raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            self.decoder.weight = self.encoder.weight
+            # self.decoder.weight = self.encoder.weight
 
         self.init_weights()
 
@@ -99,37 +99,49 @@ class RNNModel(nn.Module):
 
         latent = self.latent(output)
         latent = self.lockdrop(latent, self.dropoutl)
-        logit = self.decoder(latent.view(-1, self.ninp))
+        latent = latent.view(-1, self.ninp)
+        logit = self.decoder(latent)
 
         # (batch_size * seq_len, n_classes)
         prior_logit = self.word_class(output).contiguous().view(-1, self.n_classes)
         prior = nn.functional.softmax(prior_logit)
 
         probs = []
-        self.class_count.append(self.ntoken)
+        true_probs = []
+        self.class_count.append(self.ntoken + self.n_classes)
         for i in range(self.n_classes):
             index = np.arange(self.class_count[i], self.class_count[i+1])
-            prob = nn.functional.softmax(logit.index_select(-1, Variable(torch.from_numpy(index)).cuda()))
-            prob = prob * prior[:,i].unsqueeze(-1)
+            logits = logit.index_select(-1, Variable(torch.from_numpy(index)).cuda())
+            prob = nn.functional.softmax(logits)
+            true_prob = nn.functional.softmax(logits[:,1:]) * prior[:,i].unsqueeze(-1)
+            if not return_prob:
+                prob = torch.log(prob + 1e-8)
+            #prob = prob * prior[:,i].unsqueeze(-1)
             probs.append(prob)
-        prob = torch.cat(probs, -1)
-
+            true_probs.append(true_prob)
+        # prob = torch.cat(probs, -1)
+        true_prob = torch.cat(true_probs, -1)
         # prob = nn.functional.softmax(logit.view(-1, self.ntoken)).view(-1, self.n_experts, self.ntoken)
         # prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
 
 
         if return_prob:
-            model_output = prob
+#            model_output = prob
+            class_output = prior
         else:
-            log_prob = torch.log(prob.add_(1e-8))
-            model_output = log_prob
+#            p1 = prob + 1e-8
+#            log_prob = torch.log(p1)
+#            model_output = log_prob
+            p = prior + 1e-8
+            log_c = torch.log(p)
+            class_output = log_c
 
-        model_output = model_output.view(-1, batch_size, self.ntoken)
-        class_output = prior.view(-1, batch_size, self.n_classes)
+        #model_output = model_output.view(-1, batch_size, self.ntoken)
+        class_output = class_output.view(-1, batch_size, self.n_classes)
 
         if return_h:
-            return class_output, model_output, hidden, raw_outputs, outputs
-        return class_output, model_output, hidden
+            return class_output, probs, true_prob, hidden, raw_outputs, outputs
+        return class_output, probs, true_prob, hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data

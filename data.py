@@ -9,8 +9,10 @@ class Dictionary_softmax(object):
     def __init__(self, label_file, class_num):
         self.word2idx = {}
         self.word2cx = {}
-        self.idx2word = []
+        self.word2cidx = {}
+        self.idx2word = {}
         self.class_start_index = []
+        self.fake_start_index = []
         self.total = 0
         self.c_num = class_num
         self.c_count = [0] * self.c_num
@@ -22,9 +24,12 @@ class Dictionary_softmax(object):
                 self.c_count[c] += 1
 
         sum = 0
+        fake_sum = 0
         for i in range(self.c_num):
             self.class_start_index.append(sum)
+            self.fake_start_index.append(fake_sum)
             sum += self.c_count[i]
+            fake_sum += self.c_count[i] + 1
 
         self.c_count = [0] * self.c_num
 
@@ -36,19 +41,20 @@ class Dictionary_softmax(object):
                     index = self.class_start_index[c] + self.c_count[c]
                     self.word2idx[word] = index
                     self.word2cx[word] = c
+                    self.word2cidx[word] = self.c_count[c] + 1
                     self.c_count[c] += 1
     def __len__(self):
         return sum(self.c_count)
 
     def _get_class_num(self):
-        return self.class_start_index
+        return self.fake_start_index
 
 class Corpus_softmax(object):
     def __init__(self, path, dic):
         self.dictionary = dic
-        self.train, self.train_cl = self.tokenize(os.path.join(path, 'train.txt'))
-        self.valid, self.valid_cl = self.tokenize(os.path.join(path, 'valid.txt'))
-        self.test, self.test_cl = self.tokenize(os.path.join(path, 'test.txt'))
+        self.train, self.train_cl, self.train_cidx = self.tokenize(os.path.join(path, 'train.txt'))
+        self.valid, self.valid_cl, self.valid_cidx = self.tokenize(os.path.join(path, 'valid.txt'))
+        self.test, self.test_cl, self.test_cidx = self.tokenize(os.path.join(path, 'test.txt'))
 
     def tokenize(self, path):
         """Tokenizes a text file."""
@@ -66,15 +72,17 @@ class Corpus_softmax(object):
         with open(path, 'r', encoding='utf-8') as f:
             ids = torch.LongTensor(tokens)
             cs = torch.LongTensor(tokens)
+            cids = torch.LongTensor(tokens)
             token = 0
             for line in f:
                 words = line.split() + ['<eos>']
                 for word in words:
                     ids[token] = self.dictionary.word2idx[word]
                     cs[token] = self.dictionary.word2cx[word]
+                    cids[token] = self.dictionary.word2cidx[word]
                     token += 1
 
-        return ids, cs
+        return ids, cs, cids
 
 
 class Dictionary(object):

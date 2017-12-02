@@ -129,6 +129,10 @@ train_data = batchify(corpus.train, args.batch_size, args)
 val_data = batchify(corpus.valid, eval_batch_size, args)
 test_data = batchify(corpus.test, test_batch_size, args)
 
+train_data_fake = batchify(corpus.train_cidx, args.batch_size, args)
+val_data_fake = batchify(corpus.valid_cidx, args.batch_size, args)
+test_data_fake = batchify(corpus.test_cidx, args.batch_size, args)
+
 train_class_label = batchify(corpus.train_cl, args.batch_size, args)
 val_class_label = batchify(corpus.train_cl, args.batch_size, args)
 test_class_label = batchify(corpus.train_cl, args.batch_size, args)
@@ -186,7 +190,9 @@ def train():
     assert args.batch_size % args.small_batch_size == 0, 'batch_size must be divisible by small_batch_size'
 
     # Turn on training mode which enables dropout.
+    ppl_loss = 0
     total_loss = 0
+    total_c_loss = 0
     start_time = time.time()
     ntokens = len(corpus.dictionary)
     hidden = [model.init_hidden(args.small_batch_size) for _ in range(args.batch_size // args.small_batch_size)]
@@ -203,6 +209,7 @@ def train():
         model.train()
         data, targets = get_batch(train_data, i, args, seq_len=seq_len)
         _, c_targets = get_batch(train_class_label, i, args, seq_len=seq_len)
+        _, fake_targets = get_batch(train_data_fake, i, args, seq_len=seq_len)
 
         optimizer.zero_grad()
 
@@ -210,13 +217,19 @@ def train():
         while start < args.batch_size:
             cur_data, cur_targets = data[:, start: end], targets[:, start: end].contiguous().view(-1)
             cur_c_targets = c_targets[:, start: end].contiguous().view(-1)
+            cur_fake_targets = fake_targets[:, start: end].contiguous().view(-1)
 
             # Starting each batch, we detach the hidden state from how it was previously produced.
             # If we didn't, the model would try backpropagating all the way to start of the dataset.
             hidden[s_id] = repackage_hidden(hidden[s_id])
 
-            class_prob, log_prob, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
-            raw_loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), cur_targets)
+            class_prob, log_prob, true_probs, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
+            # raw_loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), cur_targets)
+            raw_loss = 0
+            for j, prob in enumerate(log_prob):
+                index = (cur_c_targets == j).long()
+                label = index * cur_fake_targets
+                raw_loss += nn.functional.nll_loss(prob, label)
             class_loss = nn.functional.nll_loss(class_prob.view(-1, class_prob.size(2)), cur_c_targets)
 
             loss = raw_loss + class_loss
@@ -225,7 +238,11 @@ def train():
             # Temporal Activation Regularization (slowness)
             loss = loss + sum(args.beta * (rnn_h[1:] - rnn_h[:-1]).pow(2).mean() for rnn_h in rnn_hs[-1:])
             loss *= args.small_batch_size / args.batch_size
+
+            p_loss = nn.functional.nll_loss(torch.log(nn.functional.softmax(true_probs)), cur_targets)
             total_loss += raw_loss.data * args.small_batch_size / args.batch_size
+            ppl_loss += p_loss.data * args.small_batch_size / args.batch_size
+            total_c_loss += class_loss.data * args.small_batch_size / args.batch_size
             loss.backward()
 
             s_id += 1
@@ -242,12 +259,16 @@ def train():
         optimizer.param_groups[0]['lr'] = lr2
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss[0] / args.log_interval
+            cur_c_loss = total_c_loss[0] / args.log_interval
+            p_cur_loss = ppl_loss[0] / args.log_interval
             elapsed = time.time() - start_time
             logging('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
-                    'loss {:5.2f} | ppl {:8.2f}'.format(
+                    'loss {:5.2f} | ppl {:8.2f} | c_loss {:5.2f}'.format(
                 epoch, batch, len(train_data) // args.bptt, optimizer.param_groups[0]['lr'],
-                elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
+                elapsed * 1000 / args.log_interval, cur_loss, math.exp(p_cur_loss), cur_c_loss))
             total_loss = 0
+            total_c_loss = 0
+            ppl_loss = 0
             start_time = time.time()
         ###
         batch += 1
@@ -273,6 +294,7 @@ try:
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
         train()
+        print("fuck")
         if 't0' in optimizer.param_groups[0]:
             tmp = {}
             for prm in model.parameters():
