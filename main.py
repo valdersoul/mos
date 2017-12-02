@@ -177,8 +177,8 @@ def evaluate(data_source, batch_size=10):
         data, targets = get_batch(data_source, i, args, evaluation=True)
         targets = targets.view(-1)
 
-        class_prob, log_prob, hidden = parallel_model(data, hidden)
-        loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), targets).data
+        class_output, probs, true_prob, hidden = parallel_model(data, hidden)
+        loss = nn.functional.nll_loss(torch.log(true_prob), targets).data
 
         total_loss += loss * len(data)
 
@@ -225,25 +225,28 @@ def train():
 
             class_prob, log_prob, true_probs, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
             # raw_loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), cur_targets)
-            raw_loss = 0
-            for j, prob in enumerate(log_prob):
-                index = (cur_c_targets == j).long()
-                label = index * cur_fake_targets
-                raw_loss += nn.functional.nll_loss(prob, label)
             class_loss = nn.functional.nll_loss(class_prob.view(-1, class_prob.size(2)), cur_c_targets)
+            cur_c_targets = cur_c_targets.data.cpu().numpy().tolist()
+            raw_loss = 0
+            for index,j in enumerate(cur_c_targets):
+                raw_loss += nn.functional.nll_loss(log_prob[j][index].unsqueeze(0), cur_fake_targets[index])
+            # for j, prob in enumerate(log_prob):
+            #     index = (cur_c_targets == j).long()
+            #     label = index * cur_fake_targets
+            #     raw_loss += nn.functional.nll_loss(prob, label)
 
-            loss = raw_loss + class_loss
+            loss = raw_loss / len(cur_c_targets) + class_loss
             # Activiation Regularization
             loss = loss + sum(args.alpha * dropped_rnn_h.pow(2).mean() for dropped_rnn_h in dropped_rnn_hs[-1:])
             # Temporal Activation Regularization (slowness)
             loss = loss + sum(args.beta * (rnn_h[1:] - rnn_h[:-1]).pow(2).mean() for rnn_h in rnn_hs[-1:])
             loss *= args.small_batch_size / args.batch_size
+            loss.backward()
 
-            p_loss = nn.functional.nll_loss(torch.log(nn.functional.softmax(true_probs)), cur_targets)
+            p_loss = nn.functional.nll_loss(torch.log(true_probs), cur_targets)
             total_loss += raw_loss.data * args.small_batch_size / args.batch_size
             ppl_loss += p_loss.data * args.small_batch_size / args.batch_size
             total_c_loss += class_loss.data * args.small_batch_size / args.batch_size
-            loss.backward()
 
             s_id += 1
             start = end
@@ -273,6 +276,8 @@ def train():
         ###
         batch += 1
         i += seq_len
+        if i > train_data.size(0) - 1 - 1:
+            print("hi")
 
 # Loop over epochs.
 lr = args.lr
@@ -294,7 +299,6 @@ try:
     for epoch in range(1, args.epochs+1):
         epoch_start_time = time.time()
         train()
-        print("fuck")
         if 't0' in optimizer.param_groups[0]:
             tmp = {}
             for prm in model.parameters():

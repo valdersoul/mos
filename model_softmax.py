@@ -29,8 +29,8 @@ class RNNModel(nn.Module):
         self.word_class = nn.Linear(nhidlast, n_classes, bias=False)
         # self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts * ninp), nn.Tanh())
         self.latent = nn.Sequential(nn.Linear(nhidlast, ninp), nn.Tanh())
-        self.decoder = nn.Linear(ninp, ntoken + n_classes)
-
+        #self.decoder = nn.Linear(ninp, ntoken + n_classes)
+        self.decoder = nn.Linear(ninp, ntoken)
         # Optionally tie weights as in:
         # "Using the Output Embedding to Improve Language Models" (Press & Wolf 2016)
         # https://arxiv.org/abs/1608.05859
@@ -108,14 +108,14 @@ class RNNModel(nn.Module):
 
         probs = []
         true_probs = []
-        self.class_count.append(self.ntoken + self.n_classes)
+        self.class_count.append(self.ntoken)
         for i in range(self.n_classes):
             index = np.arange(self.class_count[i], self.class_count[i+1])
             logits = logit.index_select(-1, Variable(torch.from_numpy(index)).cuda())
-            prob = nn.functional.softmax(logits)
-            true_prob = nn.functional.softmax(logits[:,1:]) * prior[:,i].unsqueeze(-1)
+            prob_c = nn.functional.softmax(logits)
+            true_prob = prob_c * prior[:,i].unsqueeze(-1)
             if not return_prob:
-                prob = torch.log(prob + 1e-8)
+                prob = torch.log(prob_c + 1e-8)
             #prob = prob * prior[:,i].unsqueeze(-1)
             probs.append(prob)
             true_probs.append(true_prob)

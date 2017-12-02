@@ -41,13 +41,13 @@ class Dictionary_softmax(object):
                     index = self.class_start_index[c] + self.c_count[c]
                     self.word2idx[word] = index
                     self.word2cx[word] = c
-                    self.word2cidx[word] = self.c_count[c] + 1
+                    self.word2cidx[word] = self.c_count[c]
                     self.c_count[c] += 1
     def __len__(self):
         return sum(self.c_count)
 
     def _get_class_num(self):
-        return self.fake_start_index
+        return self.class_start_index
 
 class Corpus_softmax(object):
     def __init__(self, path, dic):
