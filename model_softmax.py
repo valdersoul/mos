@@ -38,9 +38,9 @@ class RNNModel(nn.Module):
         # "Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling" (Inan et al. 2016)
         # https://arxiv.org/abs/1611.01462
         # if tie_weights:
-            # if nhid != ninp:
-            #    raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            # self.decoder.weight = self.encoder.weight
+        #     if nhid != ninp:
+        #        raise ValueError('When using the tied flag, nhid must be equal to emsize')
+        #     self.decoder.weight = self.encoder.weight
 
         self.init_weights()
 
@@ -119,7 +119,7 @@ class RNNModel(nn.Module):
             #prob = prob * prior[:,i].unsqueeze(-1)
             probs.append(prob)
             true_probs.append(true_prob)
-        # prob = torch.cat(probs, -1)
+        prob = torch.cat(probs, -1)
         true_prob = torch.cat(true_probs, -1)
         # prob = nn.functional.softmax(logit.view(-1, self.ntoken)).view(-1, self.n_experts, self.ntoken)
         # prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
@@ -140,8 +140,8 @@ class RNNModel(nn.Module):
         class_output = class_output.view(-1, batch_size, self.n_classes)
 
         if return_h:
-            return class_output, probs, true_prob, hidden, raw_outputs, outputs
-        return class_output, probs, true_prob, hidden
+            return class_output, prob, true_prob, hidden, raw_outputs, outputs
+        return class_output, prob, true_prob, hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data

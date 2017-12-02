@@ -224,18 +224,20 @@ def train():
             hidden[s_id] = repackage_hidden(hidden[s_id])
 
             class_prob, log_prob, true_probs, hidden[s_id], rnn_hs, dropped_rnn_hs = parallel_model(cur_data, hidden[s_id], return_h=True)
-            # raw_loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), cur_targets)
+
+            raw_loss = nn.functional.nll_loss(log_prob, cur_targets)
             class_loss = nn.functional.nll_loss(class_prob.view(-1, class_prob.size(2)), cur_c_targets)
+            p_loss = nn.functional.nll_loss(torch.log(true_probs), cur_targets)
+
             cur_c_targets = cur_c_targets.data.cpu().numpy().tolist()
-            raw_loss = 0
-            for index,j in enumerate(cur_c_targets):
-                raw_loss += nn.functional.nll_loss(log_prob[j][index].unsqueeze(0), cur_fake_targets[index])
+            # for index,j in enumerate(cur_c_targets):
+            #     raw_loss += nn.functional.nll_loss(log_prob[j][index].unsqueeze(0), cur_fake_targets[index])
             # for j, prob in enumerate(log_prob):
             #     index = (cur_c_targets == j).long()
             #     label = index * cur_fake_targets
             #     raw_loss += nn.functional.nll_loss(prob, label)
 
-            loss = raw_loss / len(cur_c_targets) + class_loss
+            loss = raw_loss + class_loss + p_loss
             # Activiation Regularization
             loss = loss + sum(args.alpha * dropped_rnn_h.pow(2).mean() for dropped_rnn_h in dropped_rnn_hs[-1:])
             # Temporal Activation Regularization (slowness)
@@ -243,7 +245,6 @@ def train():
             loss *= args.small_batch_size / args.batch_size
             loss.backward()
 
-            p_loss = nn.functional.nll_loss(torch.log(true_probs), cur_targets)
             total_loss += raw_loss.data * args.small_batch_size / args.batch_size
             ppl_loss += p_loss.data * args.small_batch_size / args.batch_size
             total_c_loss += class_loss.data * args.small_batch_size / args.batch_size
