@@ -119,23 +119,34 @@ if torch.cuda.is_available():
 
 # corpus = data.Corpus(args.data)
 class_nums = 100
-
-dic = data.Dictionary_softmax('glove.6B.100d.cluster100_labels.txt', class_nums)
-corpus = data.Corpus_softmax(args.data, dic)
-
 eval_batch_size = 10
 test_batch_size = 1
-train_data = batchify(corpus.train, args.batch_size, args)
-val_data = batchify(corpus.valid, eval_batch_size, args)
-test_data = batchify(corpus.test, test_batch_size, args)
 
-train_data_fake = batchify(corpus.train_cidx, args.batch_size, args)
-val_data_fake = batchify(corpus.valid_cidx, args.batch_size, args)
-test_data_fake = batchify(corpus.test_cidx, args.batch_size, args)
+if not args.random:
+    dic = data.Dictionary_softmax('glove.6B.100d.cluster100_labels.txt', class_nums)
+    corpus = data.Corpus_softmax(args.data, dic)
 
-train_class_label = batchify(corpus.train_cl, args.batch_size, args)
-val_class_label = batchify(corpus.train_cl, args.batch_size, args)
-test_class_label = batchify(corpus.train_cl, args.batch_size, args)
+    train_data = batchify(corpus.train, args.batch_size, args)
+    val_data = batchify(corpus.valid, eval_batch_size, args)
+    test_data = batchify(corpus.test, test_batch_size, args)
+
+    train_data_fake = batchify(corpus.train_cidx, args.batch_size, args)
+    val_data_fake = batchify(corpus.valid_cidx, args.batch_size, args)
+    test_data_fake = batchify(corpus.test_cidx, args.batch_size, args)
+
+    train_class_label = batchify(corpus.train_cl, args.batch_size, args)
+    val_class_label = batchify(corpus.train_cl, args.batch_size, args)
+    test_class_label = batchify(corpus.train_cl, args.batch_size, args)
+
+    index_array = dic._get_class_num()
+else:
+    corpus = data.Corpus(args.data)
+
+    train_data = batchify(corpus.train, args.batch_size, args)
+    val_data = batchify(corpus.valid, eval_batch_size, args)
+    test_data = batchify(corpus.test, test_batch_size, args)
+    index_array = np.arange(0, 10000, 100).tolist()
+
 
 ###############################################################################
 # Build the model
@@ -147,7 +158,7 @@ if args.continue_train:
 else:
     model = model_softmax.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nhidlast, args.nlayers,
                        args.dropout, args.dropouth, args.dropouti, args.dropoute, args.wdrop, 
-                       args.tied, args.dropoutl, class_nums, dic._get_class_num())
+                       args.tied, args.dropoutl, class_nums, index_array)
 
 if args.cuda:
     if args.single_gpu:
@@ -208,8 +219,11 @@ def train():
         optimizer.param_groups[0]['lr'] = lr2 * seq_len / args.bptt
         model.train()
         data, targets = get_batch(train_data, i, args, seq_len=seq_len)
-        _, c_targets = get_batch(train_class_label, i, args, seq_len=seq_len)
-        _, fake_targets = get_batch(train_data_fake, i, args, seq_len=seq_len)
+        if not args.random:
+            _, c_targets = get_batch(train_class_label, i, args, seq_len=seq_len)
+        else:
+            c_targets = (targets / 100).long()
+        # _, fake_targets = get_batch(train_data_fake, i, args, seq_len=seq_len)
 
         optimizer.zero_grad()
 
@@ -217,7 +231,6 @@ def train():
         while start < args.batch_size:
             cur_data, cur_targets = data[:, start: end], targets[:, start: end].contiguous().view(-1)
             cur_c_targets = c_targets[:, start: end].contiguous().view(-1)
-            cur_fake_targets = fake_targets[:, start: end].contiguous().view(-1)
 
             # Starting each batch, we detach the hidden state from how it was previously produced.
             # If we didn't, the model would try backpropagating all the way to start of the dataset.

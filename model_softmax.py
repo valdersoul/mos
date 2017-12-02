@@ -111,7 +111,11 @@ class RNNModel(nn.Module):
         self.class_count.append(self.ntoken)
         for i in range(self.n_classes):
             index = np.arange(self.class_count[i], self.class_count[i+1])
-            logits = logit.index_select(-1, Variable(torch.from_numpy(index)).cuda())
+            if torch.cuda.is_available():
+                index = torch.from_numpy(index).cuda()
+            else:
+                index = torch.from_numpy(index)
+            logits = logit.index_select(-1, Variable(index))
             prob_c = nn.functional.softmax(logits)
             true_prob = prob_c * prior[:,i].unsqueeze(-1)
             if not return_prob:
