@@ -14,8 +14,8 @@ class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
     def __init__(self, rnn_type, ntoken, ninp, nhid, nhidlast, nlayers,
-                 dropout=0.5, dropouth=0.5, dropouti=0.5, dropoute=0.1, wdrop=0,
-                 tie_weights=False, ldropout=0.5, n_classes=10, class_count=[]):
+                 dropout=0.25, dropouth=0.25, dropouti=0.25, dropoute=0.1, wdrop=0,
+                 tie_weights=False, ldropout=0.25, n_classes=10, class_count=[]):
         super(RNNModel, self).__init__()
         self.lockdrop = LockedDropout()
         self.encoder = nn.Embedding(ntoken, ninp)
@@ -26,9 +26,10 @@ class RNNModel(nn.Module):
             self.rnns = [WeightDrop(rnn, ['weight_hh_l0'], dropout=wdrop) for rnn in self.rnns]
         self.rnns = torch.nn.ModuleList(self.rnns)
 
-        self.word_class = nn.Linear(nhidlast, n_classes, bias=False)
+        #seperate the hidden state?
+        self.word_class = nn.Linear(int(nhidlast / 2), n_classes, bias=False)
         # self.latent = nn.Sequential(nn.Linear(nhidlast, n_experts * ninp), nn.Tanh())
-        self.latent = nn.Sequential(nn.Linear(nhidlast, ninp), nn.Tanh())
+        self.latent = nn.Sequential(nn.Linear(int(nhidlast / 2), ninp), nn.Tanh())
         #self.decoder = nn.Linear(ninp, ntoken + n_classes)
         self.decoder = nn.Linear(ninp, ntoken)
         # Optionally tie weights as in:
@@ -37,10 +38,10 @@ class RNNModel(nn.Module):
         # and
         # "Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling" (Inan et al. 2016)
         # https://arxiv.org/abs/1611.01462
-        # if tie_weights:
+        if tie_weights:
         #     if nhid != ninp:
         #        raise ValueError('When using the tied flag, nhid must be equal to emsize')
-        #     self.decoder.weight = self.encoder.weight
+            self.decoder.weight = self.encoder.weight
 
         self.init_weights()
 
@@ -97,13 +98,13 @@ class RNNModel(nn.Module):
         output = self.lockdrop(raw_output, self.dropout)
         outputs.append(output)
 
-        latent = self.latent(output)
+        latent = self.latent(output[:, :, int(self.nhidlast / 2):])
         latent = self.lockdrop(latent, self.dropoutl)
         latent = latent.view(-1, self.ninp)
         logit = self.decoder(latent)
 
         # (batch_size * seq_len, n_classes)
-        prior_logit = self.word_class(output).contiguous().view(-1, self.n_classes)
+        prior_logit = self.word_class(output[:, :, :int(self.nhidlast / 2)]).contiguous().view(-1, self.n_classes)
         prior = nn.functional.softmax(prior_logit)
 
         probs = []

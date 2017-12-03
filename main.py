@@ -52,7 +52,7 @@ parser.add_argument('--dropoute', type=float, default=0.1,
                     help='dropout to remove words from embedding layer (0 = no dropout)')
 parser.add_argument('--dropoutl', type=float, default=-0.2,
                     help='dropout applied to layers (0 = no dropout)')
-parser.add_argument('--wdrop', type=float, default=0.5,
+parser.add_argument('--wdrop', type=float, default=0.25,
                     help='amount of weight dropout to apply to the RNN hidden to hidden matrix')
 parser.add_argument('--tied', action='store_false',
                     help='tie the word embedding and softmax weights')
